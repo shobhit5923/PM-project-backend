@@ -1,0 +1,119 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ReportType {
+  LOST
+  FOUND
+}
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  EXPIRED
+}
+enum MatchStatus {
+  POTENTIAL
+  VERIFIED
+  REJECTED
+}
+
+enum QuestionSensitivity {
+  LOW
+  MEDIUM
+  HIGH
+}
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  phone         String?  
+  reports       Report[]  @relation("UserReports")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  notifications  Notification[]
+}
+
+model Report {
+  id             String           @id @default(cuid())
+  type          ReportType
+  user           User           @relation("UserReports", fields: [userId], references: [id])
+  userId         Int
+  category      String
+  brand         String?
+  model         String?
+  color         String?
+  uniqueIdentifier String?
+  description    String
+  locationText  String
+  latitude      Float?
+  longitude     Float?
+  dateLostFound  DateTime
+  status         ReportStatus   @default(OPEN)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lostMatches  Match[]       @relation("LostReportMatches")
+  foundMatches  Match[]      @relation("FoundReportMatches")
+}
+
+model Match {
+  id             String          @id @default(cuid())
+  lostReport     Report       @relation("LostReportMatches", fields: [lostReportId], references: [id])
+  lostReportId   String
+  foundReport    Report       @relation("FoundReportMatches", fields: [foundReportId], references: [id])
+  foundReportId  String
+  baseScore  Float @default(0)
+  qaBonusScore Float @default(0)
+  finalScore  Float @default(0)
+  status         MatchStatus   @default(POTENTIAL)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  questions  VerificationQuestion[]
+}
+
+model VerificationQuestion {
+ id           String               @id @default(cuid())
+ match        Match              @relation(fields: [matchId], references: [id])      
+ matchId      String
+ questionText String
+ sensitivity  QuestionSensitivity
+ weight       Float                
+ expectedAnswer String?      
+
+ createdAt    DateTime             @default(now())
+
+ answers      VerificationAnswer[]
+}
+
+model VerificationAnswer {
+  id             Int          @id @default(autoincrement())
+  question      VerificationQuestion @relation(fields: [questionId], references: [id])
+  questionId    String
+  userAnswer    String
+  isCorrect     Boolean
+  awardedScore  Float @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Notification {
+  id             String          @id @default(cuid())
+  user           User         @relation(fields: [userId], references: [id])
+  userId         Int
+  type         String
+  payload   Json
+  isRead       Boolean      @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}

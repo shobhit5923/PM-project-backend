@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  backend:
+    build: .
+    container_name: lostfound-backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      DATABASE_URL: "postgresql://root:root@postgres:5432/lostfounddb?schema=public"
+      JWT_SECRET: "supersecretjwtkey"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15
+    container_name: lostfound-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: "lostfounddb"
+      POSTGRES_USER: "root"
+      POSTGRES_PASSWORD: "root"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
