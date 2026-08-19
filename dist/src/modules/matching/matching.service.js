@@ -20,45 +20,74 @@ function textSimilarityBoost(lost, found) {
             overlap++;
     }
     const ratio = overlap / Math.max(wordsA.size, wordsB.size);
-    return Math.round(ratio * 25);
+    return Math.round(ratio * 30);
 }
 /**
  * Calculate base match score between LOST and FOUND reports
+ * Returns weighted baseScore, categoryMultiplier, and uniqueIdMatch status
  */
 export function calculateBaseScore(lost, found) {
-    let score = 0;
-    if (lost.category.toLowerCase() === found.category.toLowerCase()) {
-        score += 15;
-    }
-    if (lost.brand && found.brand && lost.brand.toLowerCase() === found.brand.toLowerCase()) {
-        score += 10;
-    }
-    if (lost.model && found.model && lost.model.toLowerCase() === found.model.toLowerCase()) {
-        score += 10;
-    }
-    if (lost.color && found.color && lost.color.toLowerCase() === found.color.toLowerCase()) {
-        score += 5;
-    }
-    if (lost.uniqueIdentifier &&
+    // 1. Check Serial / IMEI / Unique Identifier Match (Instant High Confidence)
+    const isUniqueIdMatch = Boolean(lost.uniqueIdentifier &&
         found.uniqueIdentifier &&
-        lost.uniqueIdentifier === found.uniqueIdentifier) {
-        score += 40;
+        lost.uniqueIdentifier.trim().length > 3 &&
+        lost.uniqueIdentifier.trim().toLowerCase() === found.uniqueIdentifier.trim().toLowerCase());
+    // 2. Category Guard (Prevents false matches across unrelated categories)
+    const lostCat = (lost.category || '').toLowerCase().trim();
+    const foundCat = (found.category || '').toLowerCase().trim();
+    let categoryMultiplier = 1.0;
+    if (lostCat !== foundCat) {
+        if (lostCat.includes('other') ||
+            foundCat.includes('other') ||
+            !lostCat ||
+            !foundCat) {
+            categoryMultiplier = 0.5;
+        }
+        else {
+            categoryMultiplier = 0.1; // Heavy penalty for distinct category mismatches (e.g. Phone vs Keys)
+        }
+    }
+    // 3. Spec Match (Max 40 points)
+    let specScore = 0;
+    if (lostCat === foundCat)
+        specScore += 15;
+    if (lost.brand &&
+        found.brand &&
+        lost.brand.trim().toLowerCase() === found.brand.trim().toLowerCase()) {
+        specScore += 15;
+    }
+    if (lost.model &&
+        found.model &&
+        lost.model.trim().toLowerCase() === found.model.trim().toLowerCase()) {
+        specScore += 10;
+    }
+    // 4. Context Proximity Match (Max 25 points)
+    let contextScore = 0;
+    if (lost.color &&
+        found.color &&
+        lost.color.trim().toLowerCase() === found.color.trim().toLowerCase()) {
+        contextScore += 10;
     }
     if (lost.locationText &&
         found.locationText &&
         (found.locationText.toLowerCase().includes(lost.locationText.toLowerCase()) ||
             lost.locationText.toLowerCase().includes(found.locationText.toLowerCase()))) {
-        score += 10;
+        contextScore += 10;
     }
     const diffMs = Math.abs(new Date(lost.dateLostFound).getTime() - new Date(found.dateLostFound).getTime());
     const diffHours = diffMs / (1000 * 60 * 60);
     if (diffHours <= 24) {
-        score += 5;
+        contextScore += 5;
     }
     else if (diffHours <= 72) {
-        score += 2;
+        contextScore += 2;
     }
-    return score;
+    const baseScore = Math.round((specScore + contextScore) * categoryMultiplier);
+    return {
+        baseScore,
+        categoryMultiplier,
+        isUniqueIdMatch,
+    };
 }
 /**
  * Run matching for a newly created report.
@@ -76,16 +105,24 @@ export async function runMatchingForReport(reportId) {
     for (const candidate of candidates) {
         const lost = report.type === 'LOST' ? report : candidate;
         const found = report.type === 'FOUND' ? report : candidate;
-        const baseScore = calculateBaseScore(lost, found);
+        const { baseScore, categoryMultiplier, isUniqueIdMatch } = calculateBaseScore(lost, found);
         let finalScore = baseScore;
-        try {
-            const probability = await semanticMatchScore(`${lost.category} ${lost.brand ?? ''} ${lost.model ?? ''} ${lost.color ?? ''} ${lost.description} ${lost.locationText}`, `${found.category} ${found.brand ?? ''} ${found.model ?? ''} ${found.color ?? ''} ${found.description} ${found.locationText}`);
-            // AI can contribute up to ~30 points
-            finalScore = baseScore + probability * 30;
+        if (isUniqueIdMatch) {
+            // Instant 95% confidence for matching Serial Number / IMEI
+            finalScore = 95;
         }
-        catch (error) {
-            console.warn('Semantic AI matching failed, using text similarity fallback:', error);
-            finalScore = baseScore + textSimilarityBoost(lost, found);
+        else {
+            try {
+                const probability = await semanticMatchScore(`${lost.category} ${lost.brand ?? ''} ${lost.model ?? ''} ${lost.color ?? ''} ${lost.description} ${lost.locationText}`, `${found.category} ${found.brand ?? ''} ${found.model ?? ''} ${found.color ?? ''} ${found.description} ${found.locationText}`);
+                // AI contributes up to 35 points, weighted by category multiplier
+                const aiBonus = Math.round(probability * 35 * categoryMultiplier);
+                finalScore = Math.min(100, Math.max(0, baseScore + aiBonus));
+            }
+            catch (error) {
+                console.warn('Semantic AI matching failed, using text similarity fallback:', error);
+                const fallbackBonus = Math.round(textSimilarityBoost(lost, found) * categoryMultiplier);
+                finalScore = Math.min(100, Math.max(0, baseScore + fallbackBonus));
+            }
         }
         if (finalScore >= MATCH_THRESHOLD) {
             const existing = await prisma.match.findFirst({

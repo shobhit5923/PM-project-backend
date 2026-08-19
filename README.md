@@ -28,7 +28,8 @@ API: `http://localhost:4000` — health: `GET /health`
 | `DATABASE_URL` | yes | Supabase Postgres URL |
 | `JWT_SECRET` | yes | Strong random string (not `dev-secret`) |
 | `GEMINI_API_KEY` | yes | Gemini key for matching |
-| `CORS_ORIGIN` | yes | Your frontend URL(s), comma-separated |
+| `CORS_ORIGIN` | no | Frontend URL(s), comma-separated. Defaults to `https://pm-project-frontend.vercel.app,http://localhost:5173` |
+| `ALLOWED_HOSTS` | no | Backend allowed host(s), comma-separated. Defaults to `https://pm-project-backend.vercel.app,localhost` |
 
 6. After first deploy, point the frontend `VITE_API_URL` at this backend URL.
 

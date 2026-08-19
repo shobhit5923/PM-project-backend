@@ -9,8 +9,15 @@ export const ENV = {
   DATABASE_URL: process.env.DATABASE_URL || '',
   JWT_SECRET: process.env.JWT_SECRET || 'dev-secret',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  /** Comma-separated frontend origins, e.g. https://app.vercel.app,http://localhost:5173 */
-  CORS_ORIGIN: process.env.CORS_ORIGIN || process.env.FRONTEND_URL || '',
+  /** Comma-separated frontend origins, e.g. https://pm-project-frontend.vercel.app,http://localhost:5173 */
+  CORS_ORIGIN:
+    process.env.CORS_ORIGIN ||
+    process.env.FRONTEND_URL ||
+    'https://pm-project-frontend.vercel.app,http://localhost:5173',
+  /** Comma-separated allowed backend hosts, e.g. https://pm-project-backend.vercel.app,localhost */
+  ALLOWED_HOSTS:
+    process.env.ALLOWED_HOSTS ||
+    'https://pm-project-backend.vercel.app,pm-project-backend.vercel.app,localhost,127.0.0.1',
   NODE_ENV: process.env.NODE_ENV || 'development',
   IS_VERCEL: Boolean(process.env.VERCEL),
   IS_PROD: isProd,

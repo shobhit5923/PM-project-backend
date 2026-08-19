@@ -2,19 +2,22 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ENV } from '../../config/env.js';
 function getFallbackQuestions() {
     return [
-        { question: 'What brand is the item?', sensitivity: 'LOW' },
-        { question: 'What color is the item?', sensitivity: 'LOW' },
+        { question: 'What brand is the item?', sensitivity: 'LOW', expectedAnswer: 'brand' },
+        { question: 'What color is the item?', sensitivity: 'LOW', expectedAnswer: 'color' },
         {
             question: 'Describe any unique marks, stickers, scratches, or damage on the item.',
             sensitivity: 'HIGH',
+            expectedAnswer: 'unique features'
         },
         {
             question: 'Where exactly on campus did you last see or lose this item?',
             sensitivity: 'HIGH',
+            expectedAnswer: 'location'
         },
         {
             question: 'What personal contents or identifying details are inside/on the item?',
             sensitivity: 'HIGH',
+            expectedAnswer: 'contents'
         },
     ];
 }
@@ -31,6 +34,7 @@ function parseQuestionsJson(text) {
         .map((q) => ({
         question: q.question,
         sensitivity: q.sensitivity === 'HIGH' ? 'HIGH' : 'LOW',
+        expectedAnswer: typeof q.expectedAnswer === 'string' ? q.expectedAnswer : '',
     }));
 }
 export async function generateVerificationQuestions(lostDescription, foundDescription) {
@@ -40,16 +44,16 @@ export async function generateVerificationQuestions(lostDescription, foundDescri
     }
     try {
         const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         const prompt = `
 You are helping verify ownership of a lost item.
 
-Based on the descriptions below, generate 5 verification questions.
+Based on the descriptions below, generate 5 verification questions with expected answers derived from the found item description.
 Rules:
 - 3 questions must be HIGH sensitivity (only real owner knows)
 - 2 questions must be LOW sensitivity (general features)
-- Mark each question as HIGH or LOW
-- Output JSON only
+- Include expectedAnswer for each question if identifiable from the description
+- Output JSON array only
 
 Descriptions:
 Lost: "${lostDescription}"
@@ -57,8 +61,8 @@ Found: "${foundDescription}"
 
 Format:
 [
-  { "question": "...", "sensitivity": "HIGH" },
-  { "question": "...", "sensitivity": "LOW" }
+  { "question": "...", "sensitivity": "HIGH", "expectedAnswer": "..." },
+  { "question": "...", "sensitivity": "LOW", "expectedAnswer": "..." }
 ]
 `;
         const result = await model.generateContent(prompt);

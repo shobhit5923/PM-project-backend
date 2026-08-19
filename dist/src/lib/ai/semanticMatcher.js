@@ -5,7 +5,7 @@ export async function semanticMatchScore(lostReport, foundReport) {
         throw new Error('GEMINI_API_KEY is missing or invalid');
     }
     const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `
 You are an expert system for matching lost and found items.
 

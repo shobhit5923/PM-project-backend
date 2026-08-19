@@ -12,22 +12,72 @@ import verificationRouter from './modules/matching/verification.routes.js';
 
 const app = express();
 
-const allowedOrigins = ENV.CORS_ORIGIN
+const defaultOrigins = [
+  'https://pm-project-frontend.vercel.app',
+  'http://localhost:5173',
+];
+
+const envOrigins = ENV.CORS_ORIGIN
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
+
+const defaultHosts = [
+  'pm-project-backend.vercel.app',
+  'https://pm-project-backend.vercel.app',
+  'localhost',
+  '127.0.0.1',
+];
+
+const envHosts = ENV.ALLOWED_HOSTS
+  .split(',')
+  .map((host) => host.trim())
+  .filter(Boolean);
+
+const allowedHosts = Array.from(new Set([...defaultHosts, ...envHosts]));
+
+// Middleware to validate host headers against allowed hosts
+app.use((req, res, next) => {
+  if (!allowedHosts.length || allowedHosts.includes('*')) {
+    next();
+    return;
+  }
+
+  const hostHeader = req.headers.host || req.hostname || '';
+  if (!hostHeader) {
+    next();
+    return;
+  }
+
+  const hostWithoutPort = hostHeader.split(':')[0];
+  const isAllowed = allowedHosts.some((allowed) => {
+    const cleanAllowed = allowed.replace(/^https?:\/\//, '');
+    return (
+      hostHeader === allowed ||
+      hostWithoutPort === cleanAllowed ||
+      cleanAllowed === '*'
+    );
+  });
+
+  if (isAllowed) {
+    next();
+    return;
+  }
+
+  res.status(403).json({ error: `Host '${hostHeader}' is not allowed` });
+});
+
 app.use(
   cors({
-    origin: allowedOrigins.length
-      ? (origin, callback) => {
-          if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-            callback(null, true);
-            return;
-          }
-          callback(new Error(`Origin ${origin} not allowed by CORS`));
-        }
-      : true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
   })
 );
