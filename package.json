@@ -11,6 +11,7 @@
     "build": "prisma generate && tsc",
     "start": "node dist/src/server.js",
     "postinstall": "prisma generate",
+    "test:smoke": "npx tsc && node dist/src/smoke-test.js",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate"

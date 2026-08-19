@@ -1,6 +1,5 @@
 // src/app.ts
 import express from 'express';
-import cors from 'cors';
 import morgan from 'morgan';
 
 import { ENV } from './config/env.js';
@@ -12,134 +11,101 @@ import verificationRouter from './modules/matching/verification.routes.js';
 
 const app = express();
 
-const defaultOrigins = [
-  'https://pm-project-frontend.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000',
-];
+// 1. Comprehensive CORS Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
 
-const envOrigins = ENV.CORS_ORIGIN
-  .split(',')
-  .map((origin) => origin.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+  const defaultOrigins = [
+    'https://pm-project-frontend.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+  ];
 
-const allowedOrigins = Array.from(
-  new Set([...defaultOrigins, ...envOrigins].map((o) => o.replace(/\/$/, '')))
-);
+  const envOrigins = (ENV.CORS_ORIGIN || '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
 
-// 1. CORS middleware must run before any host or route middleware
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow non-browser requests (e.g. server-to-server, curl, Postman)
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
+  const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
 
-      const normalizedOrigin = origin.replace(/\/$/, '');
+  let isAllowed = false;
 
+  if (!origin) {
+    // Non-browser, curl, server-to-server
+    isAllowed = true;
+  } else {
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(normalizedOrigin)) {
+      isAllowed = true;
+    } else {
       try {
         const hostname = new URL(origin).hostname;
-        if (
-          allowedOrigins.includes(normalizedOrigin) ||
-          allowedOrigins.includes('*') ||
-          hostname.endsWith('.vercel.app') ||
-          hostname === 'localhost' ||
-          hostname === '127.0.0.1'
-        ) {
-          callback(null, true);
-          return;
+        if (hostname.endsWith('.vercel.app') || hostname === 'localhost' || hostname === '127.0.0.1') {
+          isAllowed = true;
         }
       } catch {
-        // Fallback for invalid URL strings
         if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
-          callback(null, true);
-          return;
+          isAllowed = true;
         }
       }
-
-      callback(null, false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    optionsSuccessStatus: 204,
-  })
-);
-
-// 2. Host header middleware
-const defaultHosts = [
-  'pm-project-backend.vercel.app',
-  'localhost',
-  '127.0.0.1',
-];
-
-const envHosts = ENV.ALLOWED_HOSTS
-  .split(',')
-  .map((host) => host.trim().replace(/^https?:\/\//, '').replace(/\/$/, ''))
-  .filter(Boolean);
-
-const allowedHosts = Array.from(new Set([...defaultHosts, ...envHosts]));
-
-app.use((req, res, next) => {
-  // Always allow preflight OPTIONS requests
-  if (req.method === 'OPTIONS') {
-    next();
-    return;
+    }
   }
-
-  if (!allowedHosts.length || allowedHosts.includes('*')) {
-    next();
-    return;
-  }
-
-  const hostHeader = req.headers.host || req.hostname || '';
-  if (!hostHeader) {
-    next();
-    return;
-  }
-
-  const hostWithoutPort = hostHeader.split(':')[0];
-  const isAllowed =
-    allowedHosts.includes(hostWithoutPort) ||
-    allowedHosts.includes(hostHeader) ||
-    allowedHosts.includes('*') ||
-    hostWithoutPort.endsWith('.vercel.app') ||
-    hostWithoutPort === 'localhost' ||
-    hostWithoutPort === '127.0.0.1';
 
   if (isAllowed) {
-    next();
-    return;
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      req.headers['access-control-request-headers'] ||
+        'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Headers, Access-Control-Request-Method'
+    );
+    res.setHeader('Access-Control-Max-Age', '86400');
   }
 
-  res.status(403).json({ error: `Host '${hostHeader}' is not allowed` });
+  // Immediately fulfill OPTIONS preflight requests
+  if (req.method === 'OPTIONS') {
+    if (isAllowed) {
+      res.status(204).end();
+      return;
+    } else {
+      res.status(403).json({ error: `Origin '${origin}' not allowed by CORS` });
+      return;
+    }
+  }
+
+  next();
 });
 
+// Logging & Body Parsers
 app.use(morgan(ENV.IS_PROD ? 'combined' : 'dev'));
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/', (_req, res) => {
-  res.json({ status: 'ok', service: 'gim-lostfound-backend' });
+// Health Check Endpoints (returns status: success)
+app.get(['/', '/health', '/healthz', '/api/health'], (_req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'LostFound backend is running and healthy',
+    timestamp: new Date().toISOString(),
+    service: 'gim-lostfound-backend',
+  });
 });
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', message: 'LostFound backend is running' });
-});
-
+// Module Routes
 app.use('/auth', authRouter);
 app.use('/reports', reportsRouter);
 app.use('/notifications', notificationsRouter);
 app.use('/matches', matchesRouter);
 app.use('/matches', verificationRouter);
 
+// 404 Handler
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
+// Global Error Handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
   const status = err.message.includes('CORS') ? 403 : 500;
