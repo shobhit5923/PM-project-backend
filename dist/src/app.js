@@ -12,25 +12,66 @@ const app = express();
 const defaultOrigins = [
     'https://pm-project-frontend.vercel.app',
     'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
 ];
 const envOrigins = ENV.CORS_ORIGIN
     .split(',')
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
-const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
+const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins].map((o) => o.replace(/\/$/, ''))));
+// 1. CORS middleware must run before any host or route middleware
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow non-browser requests (e.g. server-to-server, curl, Postman)
+        if (!origin) {
+            callback(null, true);
+            return;
+        }
+        const normalizedOrigin = origin.replace(/\/$/, '');
+        try {
+            const hostname = new URL(origin).hostname;
+            if (allowedOrigins.includes(normalizedOrigin) ||
+                allowedOrigins.includes('*') ||
+                hostname.endsWith('.vercel.app') ||
+                hostname === 'localhost' ||
+                hostname === '127.0.0.1') {
+                callback(null, true);
+                return;
+            }
+        }
+        catch {
+            // Fallback for invalid URL strings
+            if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
+                callback(null, true);
+                return;
+            }
+        }
+        callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    optionsSuccessStatus: 204,
+}));
+// 2. Host header middleware
 const defaultHosts = [
     'pm-project-backend.vercel.app',
-    'https://pm-project-backend.vercel.app',
     'localhost',
     '127.0.0.1',
 ];
 const envHosts = ENV.ALLOWED_HOSTS
     .split(',')
-    .map((host) => host.trim())
+    .map((host) => host.trim().replace(/^https?:\/\//, '').replace(/\/$/, ''))
     .filter(Boolean);
 const allowedHosts = Array.from(new Set([...defaultHosts, ...envHosts]));
-// Middleware to validate host headers against allowed hosts
 app.use((req, res, next) => {
+    // Always allow preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+        next();
+        return;
+    }
     if (!allowedHosts.length || allowedHosts.includes('*')) {
         next();
         return;
@@ -41,28 +82,18 @@ app.use((req, res, next) => {
         return;
     }
     const hostWithoutPort = hostHeader.split(':')[0];
-    const isAllowed = allowedHosts.some((allowed) => {
-        const cleanAllowed = allowed.replace(/^https?:\/\//, '');
-        return (hostHeader === allowed ||
-            hostWithoutPort === cleanAllowed ||
-            cleanAllowed === '*');
-    });
+    const isAllowed = allowedHosts.includes(hostWithoutPort) ||
+        allowedHosts.includes(hostHeader) ||
+        allowedHosts.includes('*') ||
+        hostWithoutPort.endsWith('.vercel.app') ||
+        hostWithoutPort === 'localhost' ||
+        hostWithoutPort === '127.0.0.1';
     if (isAllowed) {
         next();
         return;
     }
     res.status(403).json({ error: `Host '${hostHeader}' is not allowed` });
 });
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-            callback(null, true);
-            return;
-        }
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
-    },
-    credentials: true,
-}));
 app.use(morgan(ENV.IS_PROD ? 'combined' : 'dev'));
 app.use(express.json({ limit: '1mb' }));
 app.get('/', (_req, res) => {
