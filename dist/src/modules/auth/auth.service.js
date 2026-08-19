@@ -15,29 +15,39 @@ function toSafeUser(user) {
     };
 }
 export async function registerUser(name, email, password, phone) {
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
-        throw new Error('Email already in use');
+        throw new Error('An account with this email already exists.');
     }
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = await prisma.user.create({
-        data: {
-            name,
-            email,
-            passwordHash,
-            phone,
-        },
-    });
-    const token = jwt.sign({ userId: user.id }, ENV.JWT_SECRET, { expiresIn: '7d' });
-    return { user: toSafeUser(user), token };
+    try {
+        const user = await prisma.user.create({
+            data: {
+                name: name.trim(),
+                email: normalizedEmail,
+                passwordHash,
+                phone: phone ? phone.trim() : null,
+            },
+        });
+        const token = jwt.sign({ userId: user.id }, ENV.JWT_SECRET, { expiresIn: '7d' });
+        return { user: toSafeUser(user), token };
+    }
+    catch (err) {
+        if (err.code === 'P2002') {
+            throw new Error('An account with this email already exists.');
+        }
+        throw err;
+    }
 }
 export async function loginUser(email, password) {
-    const user = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user)
-        throw new Error('Invalid credentials');
+        throw new Error('Invalid email or password');
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid)
-        throw new Error('Invalid credentials');
+        throw new Error('Invalid email or password');
     const token = jwt.sign({ userId: user.id }, ENV.JWT_SECRET, { expiresIn: '7d' });
     return { user: toSafeUser(user), token };
 }
