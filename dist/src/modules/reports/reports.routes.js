@@ -21,9 +21,10 @@ router.get('/', requireAuth, async (_req, res) => {
 // POST /reports/lost
 router.post('/lost', requireAuth, async (req, res) => {
     try {
-        const { category, brand, model, color, uniqueIdentifier, description, locationText, latitude, longitude, dateTime } = req.body;
-        if (!category || !description || !locationText || !dateTime) {
-            return res.status(400).json({ error: 'category, description, locationText, dateTime are required' });
+        const { category, brand, model, color, uniqueIdentifier, description, locationText, latitude, longitude, dateTime, dateLostFound } = req.body;
+        const rawDate = dateTime || dateLostFound || new Date().toISOString();
+        if (!category || !description || !locationText) {
+            return res.status(400).json({ error: 'category, description, locationText are required' });
         }
         const report = await createReport({
             type: ReportType.LOST,
@@ -37,7 +38,7 @@ router.post('/lost', requireAuth, async (req, res) => {
             locationText,
             latitude,
             longitude,
-            dateTime: new Date(dateTime),
+            dateTime: new Date(rawDate),
         });
         let matches = [];
         try {
@@ -55,9 +56,10 @@ router.post('/lost', requireAuth, async (req, res) => {
 // POST /reports/found
 router.post('/found', requireAuth, async (req, res) => {
     try {
-        const { category, brand, model, color, uniqueIdentifier, description, locationText, latitude, longitude, dateTime } = req.body;
-        if (!category || !description || !locationText || !dateTime) {
-            return res.status(400).json({ error: 'category, description, locationText, dateTime are required' });
+        const { category, brand, model, color, uniqueIdentifier, description, locationText, latitude, longitude, dateTime, dateLostFound } = req.body;
+        const rawDate = dateTime || dateLostFound || new Date().toISOString();
+        if (!category || !description || !locationText) {
+            return res.status(400).json({ error: 'category, description, locationText are required' });
         }
         const report = await createReport({
             type: ReportType.FOUND,
@@ -71,7 +73,7 @@ router.post('/found', requireAuth, async (req, res) => {
             locationText,
             latitude,
             longitude,
-            dateTime: new Date(dateTime),
+            dateTime: new Date(rawDate),
         });
         let matches = [];
         try {
