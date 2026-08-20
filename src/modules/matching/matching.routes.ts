@@ -1,43 +1,81 @@
 import { Router } from 'express';
 import prisma from '../../lib/prisma.js';
 import { requireAuth, AuthRequest } from '../auth/auth.middleware.js';
+import { reMatchAllOpenReports } from './matching.service.js';
 
 const router = Router();
 
+/**
+ * Redacts sensitive fields of found items for unverified claims to prevent false claims
+ */
+function sanitizeMatchesForUser(matches: any[], userId: number) {
+  return matches.map((match) => {
+    const isLostOwner = Number(match.lostReport?.userId) === userId;
+    const isVerified = match.status === 'VERIFIED';
+
+    if (isLostOwner && !isVerified) {
+      return {
+        ...match,
+        foundReport: {
+          ...match.foundReport,
+          description: '[Protected for anti-fraud security. Complete verification to unlock details.]',
+          locationText: '[Location Protected]',
+          uniqueIdentifier: match.foundReport?.uniqueIdentifier ? '••••••••' : null,
+        },
+      };
+    }
+    return match;
+  });
+}
+
 // GET /matches/my
 router.get('/my', requireAuth, async (req: AuthRequest, res) => {
-  const matches = await prisma.match.findMany({
-    where: {
-      lostReport: {
-        userId:  Number(req.userId),
-      },
-    },
-    include: {
-      foundReport: true,
-      lostReport: true,
-      questions: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  try {
+    const userId = Number(req.userId);
+    try {
+      await reMatchAllOpenReports();
+    } catch (e) {
+      // Ignore background retro-matching errors
+    }
 
-  res.json(matches);
+    const matches = await prisma.match.findMany({
+      where: {
+        OR: [
+          { lostReport: { userId } },
+          { foundReport: { userId } },
+        ],
+      },
+      include: {
+        foundReport: true,
+        lostReport: true,
+        questions: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(sanitizeMatchesForUser(matches, userId));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // GET /matches/found-for-me
-// Get all FOUND reports that match user's LOST reports
+// Get all matches where the current user is involved (either as lost or found owner)
 router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
   try {
-    // Get all user's lost reports
-    const lostReports = await prisma.report.findMany({
-      where: { userId: Number(req.userId), type: 'LOST' },
-    });
+    const userId = Number(req.userId);
+    try {
+      await reMatchAllOpenReports();
+    } catch (e) {
+      // Ignore background retro-matching errors
+    }
 
-    const lostReportIds = lostReports.map((r: { id: string }) => r.id);
-
-    // Get all matches where user's lost report is involved
     const matches = await prisma.match.findMany({
       where: {
-        lostReportId: { in: lostReportIds },
+        OR: [
+          { lostReport: { userId } },
+          { foundReport: { userId } },
+        ],
       },
       include: {
         foundReport: true,
@@ -51,7 +89,7 @@ router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
       orderBy: { finalScore: 'desc' },
     });
 
-    res.json(matches);
+    res.json(sanitizeMatchesForUser(matches, userId));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

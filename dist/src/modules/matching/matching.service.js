@@ -1,7 +1,7 @@
 // src/modules/matching/matching.service.ts
 import prisma from '../../lib/prisma.js';
 import { semanticMatchScore } from '../../lib/ai/semanticMatcher.js';
-const MATCH_THRESHOLD = 40;
+const MATCH_THRESHOLD = 30;
 /**
  * Simple token-overlap boost when Gemini is unavailable
  */
@@ -24,7 +24,6 @@ function textSimilarityBoost(lost, found) {
 }
 /**
  * Calculate base match score between LOST and FOUND reports
- * Returns weighted baseScore, categoryMultiplier, and uniqueIdMatch status
  */
 export function calculateBaseScore(lost, found) {
     // 1. Check Serial / IMEI / Unique Identifier Match (Instant High Confidence)
@@ -32,24 +31,15 @@ export function calculateBaseScore(lost, found) {
         found.uniqueIdentifier &&
         lost.uniqueIdentifier.trim().length > 3 &&
         lost.uniqueIdentifier.trim().toLowerCase() === found.uniqueIdentifier.trim().toLowerCase());
-    // 2. Category Guard (Prevents false matches across unrelated categories)
     const lostCat = (lost.category || '').toLowerCase().trim();
     const foundCat = (found.category || '').toLowerCase().trim();
-    let categoryMultiplier = 1.0;
-    if (lostCat !== foundCat) {
-        if (lostCat.includes('other') ||
-            foundCat.includes('other') ||
-            !lostCat ||
-            !foundCat) {
-            categoryMultiplier = 0.5;
-        }
-        else {
-            categoryMultiplier = 0.1; // Heavy penalty for distinct category mismatches (e.g. Phone vs Keys)
-        }
-    }
-    // 3. Spec Match (Max 40 points)
+    const isCatMatch = lostCat === foundCat ||
+        (lostCat.includes('electron') && foundCat.includes('electron')) ||
+        (lostCat.includes('phone') && foundCat.includes('phone')) ||
+        (!lostCat || !foundCat);
+    // 2. Spec Match (Max 40 points)
     let specScore = 0;
-    if (lostCat === foundCat)
+    if (isCatMatch)
         specScore += 15;
     if (lost.brand &&
         found.brand &&
@@ -61,7 +51,7 @@ export function calculateBaseScore(lost, found) {
         lost.model.trim().toLowerCase() === found.model.trim().toLowerCase()) {
         specScore += 10;
     }
-    // 4. Context Proximity Match (Max 25 points)
+    // 3. Context Proximity Match (Max 35 points)
     let contextScore = 0;
     if (lost.color &&
         found.color &&
@@ -72,26 +62,25 @@ export function calculateBaseScore(lost, found) {
         found.locationText &&
         (found.locationText.toLowerCase().includes(lost.locationText.toLowerCase()) ||
             lost.locationText.toLowerCase().includes(found.locationText.toLowerCase()))) {
-        contextScore += 10;
+        contextScore += 15;
     }
     const diffMs = Math.abs(new Date(lost.dateLostFound).getTime() - new Date(found.dateLostFound).getTime());
     const diffHours = diffMs / (1000 * 60 * 60);
     if (diffHours <= 24) {
-        contextScore += 5;
+        contextScore += 10;
     }
     else if (diffHours <= 72) {
-        contextScore += 2;
+        contextScore += 5;
     }
-    const baseScore = Math.round((specScore + contextScore) * categoryMultiplier);
+    const baseScore = specScore + contextScore;
     return {
         baseScore,
-        categoryMultiplier,
+        categoryMultiplier: 1.0,
         isUniqueIdMatch,
     };
 }
 /**
- * Run matching for a newly created report.
- * Returns any matches created for this report.
+ * Run matching for a newly created or existing report.
  */
 export async function runMatchingForReport(reportId) {
     const report = await prisma.report.findUnique({ where: { id: reportId } });
@@ -105,22 +94,20 @@ export async function runMatchingForReport(reportId) {
     for (const candidate of candidates) {
         const lost = report.type === 'LOST' ? report : candidate;
         const found = report.type === 'FOUND' ? report : candidate;
-        const { baseScore, categoryMultiplier, isUniqueIdMatch } = calculateBaseScore(lost, found);
+        const { baseScore, isUniqueIdMatch } = calculateBaseScore(lost, found);
         let finalScore = baseScore;
         if (isUniqueIdMatch) {
-            // Instant 95% confidence for matching Serial Number / IMEI
             finalScore = 95;
         }
         else {
             try {
                 const probability = await semanticMatchScore(`${lost.category} ${lost.brand ?? ''} ${lost.model ?? ''} ${lost.color ?? ''} ${lost.description} ${lost.locationText}`, `${found.category} ${found.brand ?? ''} ${found.model ?? ''} ${found.color ?? ''} ${found.description} ${found.locationText}`);
-                // AI contributes up to 35 points, weighted by category multiplier
-                const aiBonus = Math.round(probability * 35 * categoryMultiplier);
+                const aiBonus = Math.round(probability * 35);
                 finalScore = Math.min(100, Math.max(0, baseScore + aiBonus));
             }
             catch (error) {
                 console.warn('Semantic AI matching failed, using text similarity fallback:', error);
-                const fallbackBonus = Math.round(textSimilarityBoost(lost, found) * categoryMultiplier);
+                const fallbackBonus = textSimilarityBoost(lost, found);
                 finalScore = Math.min(100, Math.max(0, baseScore + fallbackBonus));
             }
         }
@@ -166,4 +153,20 @@ export async function runMatchingForReport(reportId) {
         }
     }
     return createdMatches;
+}
+/**
+ * Re-run matching across all OPEN reports in the database
+ */
+export async function reMatchAllOpenReports() {
+    try {
+        const openReports = await prisma.report.findMany({
+            where: { status: 'OPEN' },
+        });
+        for (const report of openReports) {
+            await runMatchingForReport(report.id);
+        }
+    }
+    catch (err) {
+        console.error('Error running retro-matching across open reports:', err);
+    }
 }
