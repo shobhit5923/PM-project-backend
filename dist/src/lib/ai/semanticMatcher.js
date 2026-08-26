@@ -24,11 +24,13 @@ Lost:
 Found:
 "${foundReport}"
 `;
-    const result = await model.generateContent(prompt);
-    console.log('Semantic match raw response:', result);
-    const text = result.response.text().trim();
-    const score = parseFloat(text);
-    if (isNaN(score))
-        return 0;
-    return Math.max(0, Math.min(1, score));
+    // Timeout wrapper to prevent hanging calls
+    const callWithTimeout = async () => {
+        const result = await model.generateContent(prompt);
+        const text = result.response.text().trim();
+        const score = parseFloat(text);
+        return isNaN(score) ? 0 : Math.max(0, Math.min(1, score));
+    };
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('AI matching timeout')), 3000));
+    return Promise.race([callWithTimeout(), timeoutPromise]);
 }

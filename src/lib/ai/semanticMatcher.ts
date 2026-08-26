@@ -31,12 +31,17 @@ Found:
 "${foundReport}"
 `;
 
-  const result = await model.generateContent(prompt);
-  console.log('Semantic match raw response:', result);
-  const text = result.response.text().trim();
+  // Timeout wrapper to prevent hanging calls
+  const callWithTimeout = async () => {
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const score = parseFloat(text);
+    return isNaN(score) ? 0 : Math.max(0, Math.min(1, score));
+  };
 
-  const score = parseFloat(text);
-  if (isNaN(score)) return 0;
+  const timeoutPromise = new Promise<number>((_, reject) =>
+    setTimeout(() => reject(new Error('AI matching timeout')), 3000)
+  );
 
-  return Math.max(0, Math.min(1, score));
+  return Promise.race([callWithTimeout(), timeoutPromise]);
 }

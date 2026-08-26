@@ -28,15 +28,23 @@ function sanitizeMatchesForUser(matches: any[], userId: number) {
   });
 }
 
-// GET /matches/my
+// POST /matches/re-match — Trigger background retro-matching
+router.post('/re-match', requireAuth, async (_req: AuthRequest, res) => {
+  reMatchAllOpenReports().catch((err) =>
+    console.error('Background retro-matching error:', err)
+  );
+  res.json({ message: 'Retro-matching started in background' });
+});
+
+// GET /matches/my — Fast instant response
 router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
-    try {
-      await reMatchAllOpenReports();
-    } catch (e) {
-      // Ignore background retro-matching errors
-    }
+
+    // Fire background retro-matching without blocking the response
+    reMatchAllOpenReports().catch((e) =>
+      console.error('Background retro-match error:', e)
+    );
 
     const matches = await prisma.match.findMany({
       where: {
@@ -59,16 +67,15 @@ router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /matches/found-for-me
-// Get all matches where the current user is involved (either as lost or found owner)
+// GET /matches/found-for-me — Fast instant response
 router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
-    try {
-      await reMatchAllOpenReports();
-    } catch (e) {
-      // Ignore background retro-matching errors
-    }
+
+    // Fire background retro-matching without blocking the response
+    reMatchAllOpenReports().catch((e) =>
+      console.error('Background retro-match error:', e)
+    );
 
     const matches = await prisma.match.findMany({
       where: {
