@@ -80,18 +80,19 @@ export async function submitVerificationAnswers(matchId, answers) {
     }
     const currentMatch = await prisma.match.findUnique({ where: { id: matchId } });
     const newFinalScore = Math.min(100, Math.round((currentMatch?.finalScore || 0) + score));
+    // Automatic verification status update for scores >= 85
+    const newStatus = newFinalScore >= 85 ? 'VERIFIED' : (currentMatch?.status || 'POTENTIAL');
     const match = await prisma.match.update({
         where: { id: matchId },
         data: {
             qaBonusScore: score,
             finalScore: newFinalScore,
+            status: newStatus,
+        },
+        include: {
+            lostReport: true,
+            foundReport: true,
         },
     });
-    if (match.finalScore >= 85) {
-        return prisma.match.update({
-            where: { id: matchId },
-            data: { status: 'VERIFIED' },
-        });
-    }
     return match;
 }
