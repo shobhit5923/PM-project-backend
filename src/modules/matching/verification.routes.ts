@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../auth/auth.middleware.js';
 import prisma from '../../lib/prisma.js';
-import { createVerificationQuestions , submitVerificationAnswers } from './verification.service.js';
+import { createVerificationQuestions, submitVerificationAnswers } from './verification.service.js';
 
 const router = Router();
 
@@ -15,32 +15,74 @@ router.post('/:id/questions', requireAuth, async (req: AuthRequest, res) => {
     const id = paramId(req.params.id);
     const match = await prisma.match.findUnique({
       where: { id },
-      include: { lostReport: true },
+      include: {
+        lostReport: true,
+        foundReport: true,
+      },
     });
 
-    if (!match || Number(match.lostReport.userId) !== Number(req.userId)) {
-      return res.status(403).json({ error: 'Unauthorized' });
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
     }
 
-    await createVerificationQuestions(match.id);
+    const currentUserId = Number(req.userId);
+    const lostOwnerId = Number(match.lostReport?.userId);
+    const foundOwnerId = Number(match.foundReport?.userId);
 
-    const questions = await prisma.verificationQuestion.findMany({
+    // Allow participants of the match (Lost Owner or Found Finder)
+    if (currentUserId !== lostOwnerId && currentUserId !== foundOwnerId) {
+      return res.status(403).json({ error: 'Unauthorized: You are not a participant in this match' });
+    }
+
+    // Return existing questions if already generated
+    let questions = await prisma.verificationQuestion.findMany({
       where: { matchId: match.id },
     });
 
+    if (questions.length === 0) {
+      await createVerificationQuestions(match.id);
+      questions = await prisma.verificationQuestion.findMany({
+        where: { matchId: match.id },
+      });
+    }
+
     res.json(questions);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message || 'Failed to load verification questions' });
   }
 });
 
 // POST /matches/:id/answers
 router.post('/:id/answers', requireAuth, async (req: AuthRequest, res) => {
-  const { answers } = req.body;
+  try {
+    const id = paramId(req.params.id);
+    const { answers } = req.body;
 
-  const match = await submitVerificationAnswers(paramId(req.params.id), answers);
-  res.json(match);
+    const match = await prisma.match.findUnique({
+      where: { id },
+      include: {
+        lostReport: true,
+        foundReport: true,
+      },
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    const currentUserId = Number(req.userId);
+    const lostOwnerId = Number(match.lostReport?.userId);
+    const foundOwnerId = Number(match.foundReport?.userId);
+
+    if (currentUserId !== lostOwnerId && currentUserId !== foundOwnerId) {
+      return res.status(403).json({ error: 'Unauthorized: You are not a participant in this match' });
+    }
+
+    const updatedMatch = await submitVerificationAnswers(id, answers);
+    res.json(updatedMatch);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to submit verification answers' });
+  }
 });
-
 
 export default router;
