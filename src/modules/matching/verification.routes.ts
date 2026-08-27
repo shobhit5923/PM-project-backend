@@ -9,7 +9,7 @@ function paramId(value: string | string[]): string {
   return Array.isArray(value) ? value[0] : value;
 }
 
-// POST /matches/:id/questions
+// POST /matches/:id/questions — Only the lost item owner can start verification questions
 router.post('/:id/questions', requireAuth, async (req: AuthRequest, res) => {
   try {
     const id = paramId(req.params.id);
@@ -27,11 +27,12 @@ router.post('/:id/questions', requireAuth, async (req: AuthRequest, res) => {
 
     const currentUserId = Number(req.userId);
     const lostOwnerId = Number(match.lostReport?.userId);
-    const foundOwnerId = Number(match.foundReport?.userId);
 
-    // Allow participants of the match (Lost Owner or Found Finder)
-    if (currentUserId !== lostOwnerId && currentUserId !== foundOwnerId) {
-      return res.status(403).json({ error: 'Unauthorized: You are not a participant in this match' });
+    // Strictly enforce: Only the Lost Item Owner can start verification to claim the item
+    if (currentUserId !== lostOwnerId) {
+      return res.status(403).json({
+        error: 'Only the user who lost this item can start verification and claim it.',
+      });
     }
 
     // Return existing questions if already generated
@@ -52,7 +53,7 @@ router.post('/:id/questions', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// POST /matches/:id/answers
+// POST /matches/:id/answers — Only the lost item owner can submit verification answers
 router.post('/:id/answers', requireAuth, async (req: AuthRequest, res) => {
   try {
     const id = paramId(req.params.id);
@@ -72,10 +73,12 @@ router.post('/:id/answers', requireAuth, async (req: AuthRequest, res) => {
 
     const currentUserId = Number(req.userId);
     const lostOwnerId = Number(match.lostReport?.userId);
-    const foundOwnerId = Number(match.foundReport?.userId);
 
-    if (currentUserId !== lostOwnerId && currentUserId !== foundOwnerId) {
-      return res.status(403).json({ error: 'Unauthorized: You are not a participant in this match' });
+    // Strictly enforce: Only the Lost Item Owner can submit answers to claim the item
+    if (currentUserId !== lostOwnerId) {
+      return res.status(403).json({
+        error: 'Only the user who lost this item can submit verification answers to claim it.',
+      });
     }
 
     const updatedMatch = await submitVerificationAnswers(id, answers);
