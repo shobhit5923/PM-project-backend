@@ -21,11 +21,13 @@ function getFallbackQuestions(): GeneratedQuestion[] {
       sensitivity: 'HIGH',
       expectedAnswer: 'location'
     },
+    /*
     {
       question: 'What personal contents or identifying details are inside/on the item?',
       sensitivity: 'HIGH',
       expectedAnswer: 'contents'
     },
+    */
   ];
 }
 
@@ -63,9 +65,9 @@ export async function generateVerificationQuestions(
     const prompt = `
 You are helping verify ownership of a lost item.
 
-Based on the descriptions below, generate 5 verification questions with expected answers derived from the found item description.
+Based on the descriptions below, generate 4 verification questions with expected answers derived from the found item description.
 Rules:
-- 3 questions must be HIGH sensitivity (only real owner knows)
+- 2 questions must be HIGH sensitivity (only real owner knows)
 - 2 questions must be LOW sensitivity (general features)
 - Include expectedAnswer for each question if identifiable from the description
 - Output JSON array only
