@@ -36,7 +36,7 @@ router.post('/re-match', requireAuth, async (_req: AuthRequest, res) => {
   res.json({ message: 'Retro-matching started in background' });
 });
 
-// GET /matches/my — Fast instant response
+// GET /matches/my — Returns matches for items reported LOST by current user
 router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
@@ -48,10 +48,9 @@ router.get('/my', requireAuth, async (req: AuthRequest, res) => {
 
     const matches = await prisma.match.findMany({
       where: {
-        OR: [
-          { lostReport: { userId } },
-          { foundReport: { userId } },
-        ],
+        lostReport: {
+          userId,
+        },
       },
       include: {
         foundReport: true,
@@ -67,7 +66,7 @@ router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /matches/found-for-me — Fast instant response
+// GET /matches/found-for-me — Returns matches for items reported LOST by current user
 router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
@@ -79,10 +78,9 @@ router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
 
     const matches = await prisma.match.findMany({
       where: {
-        OR: [
-          { lostReport: { userId } },
-          { foundReport: { userId } },
-        ],
+        lostReport: {
+          userId,
+        },
       },
       include: {
         foundReport: true,
