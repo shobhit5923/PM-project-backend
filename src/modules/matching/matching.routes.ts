@@ -36,10 +36,30 @@ router.post('/re-match', requireAuth, async (_req: AuthRequest, res) => {
   res.json({ message: 'Retro-matching started in background' });
 });
 
-// GET /matches/my — Returns matches for items reported LOST by current user
+// Helper for type filtering (LOST, FOUND, ALL)
+function buildMatchWhereClause(userId: number, type?: string) {
+  const normalizedType = (type || 'LOST').toUpperCase();
+
+  if (normalizedType === 'FOUND') {
+    return { foundReport: { userId } };
+  } else if (normalizedType === 'ALL') {
+    return {
+      OR: [
+        { lostReport: { userId } },
+        { foundReport: { userId } },
+      ],
+    };
+  }
+
+  // Default to LOST items reported by user
+  return { lostReport: { userId } };
+}
+
+// GET /matches/my — Returns matches for logged in user (supports ?type=LOST|FOUND|ALL)
 router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
+    const type = req.query.type as string | undefined;
 
     // Fire background retro-matching without blocking the response
     reMatchAllOpenReports().catch((e) =>
@@ -47,11 +67,7 @@ router.get('/my', requireAuth, async (req: AuthRequest, res) => {
     );
 
     const matches = await prisma.match.findMany({
-      where: {
-        lostReport: {
-          userId,
-        },
-      },
+      where: buildMatchWhereClause(userId, type),
       include: {
         foundReport: true,
         lostReport: true,
@@ -66,10 +82,11 @@ router.get('/my', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /matches/found-for-me — Returns matches for items reported LOST by current user
+// GET /matches/found-for-me — Returns matches for logged in user (supports ?type=LOST|FOUND|ALL)
 router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = Number(req.userId);
+    const type = req.query.type as string | undefined;
 
     // Fire background retro-matching without blocking the response
     reMatchAllOpenReports().catch((e) =>
@@ -77,11 +94,7 @@ router.get('/found-for-me', requireAuth, async (req: AuthRequest, res) => {
     );
 
     const matches = await prisma.match.findMany({
-      where: {
-        lostReport: {
-          userId,
-        },
-      },
+      where: buildMatchWhereClause(userId, type),
       include: {
         foundReport: true,
         lostReport: true,
