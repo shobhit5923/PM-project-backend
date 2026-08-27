@@ -60,11 +60,13 @@ export async function getOpenReports() {
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
+      userId: true,
       type: true,
       category: true,
       brand: true,
       model: true,
       color: true,
+      uniqueIdentifier: true,
       description: true,
       locationText: true,
       dateLostFound: true,
