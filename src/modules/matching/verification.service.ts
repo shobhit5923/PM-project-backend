@@ -35,7 +35,8 @@ export async function createVerificationQuestions(matchId: string) {
 const STOP_WORDS = new Set([
   'the', 'is', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for',
   'with', 'it', 'my', 'of', 'by', 'this', 'that', 'there', 'was', 'were',
-  'item', 'lost', 'found', 'something', 'anything', 'some', 'any', 'yes', 'no'
+  'item', 'lost', 'found', 'something', 'anything', 'some', 'any', 'yes', 'no',
+  'brand', 'color', 'model', 'location', 'campus', 'unique', 'features'
 ]);
 
 function extractKeywords(str?: string | null): string[] {
@@ -48,7 +49,7 @@ function extractKeywords(str?: string | null): string[] {
 
 /**
  * Strict answer verification checking user's answer against expected answer & found item context.
- * Does NOT accept generic 3+ character strings as correct.
+ * If expectedAnswer is present, strictly validates against expectedAnswer.
  */
 function isAnswerCorrect(
   userAnswer: string,
@@ -62,36 +63,38 @@ function isAnswerCorrect(
   const userTokens = extractKeywords(userClean);
   if (userTokens.length === 0) return false;
 
-  // 1. Check against expectedAnswer if provided
+  // 1. If expectedAnswer is specified, strictly validate against expectedAnswer ONLY
   if (expectedAnswer && expectedAnswer.trim().length > 0) {
     const expectedClean = expectedAnswer.trim().toLowerCase();
     
-    // Direct substring or inclusion match
+    // Direct match or substring match
     if (expectedClean.includes(userClean) || userClean.includes(expectedClean)) {
       return true;
     }
 
     const expectedTokens = extractKeywords(expectedClean);
-    const hasOverlap = userTokens.some((t) => expectedTokens.includes(t));
-    if (hasOverlap) return true;
+    if (expectedTokens.length > 0) {
+      const hasOverlap = userTokens.some((t) => expectedTokens.includes(t));
+      return hasOverlap;
+    }
+    return false;
   }
 
-  // 2. Check against found item description context
+  // 2. If NO expectedAnswer was provided, fallback to checking against description context
   if (foundDescription && foundDescription.trim().length > 0) {
     const descTokens = extractKeywords(foundDescription);
     const hasOverlap = userTokens.some((t) => descTokens.includes(t));
     if (hasOverlap) return true;
   }
 
-  // 3. Check against found item metadata (brand, model, color, location)
+  // 3. Fallback check against found item metadata
   if (foundReport) {
-    const metaStr = `${foundReport.category || ''} ${foundReport.brand || ''} ${foundReport.model || ''} ${foundReport.color || ''} ${foundReport.locationText || ''}`;
+    const metaStr = `${foundReport.brand || ''} ${foundReport.model || ''} ${foundReport.color || ''} ${foundReport.locationText || ''}`;
     const metaTokens = extractKeywords(metaStr);
     const hasOverlap = userTokens.some((t) => metaTokens.includes(t));
     if (hasOverlap) return true;
   }
 
-  // No match found — incorrect answer!
   return false;
 }
 
@@ -134,7 +137,11 @@ export async function submitVerificationAnswers(
   }
 
   const currentMatch = await prisma.match.findUnique({ where: { id: matchId } });
-  const newFinalScore = Math.min(100, Math.round((currentMatch?.baseScore || 0) + score));
+  
+  // Retain base score + AI similarity score, add ONLY the earned QA bonus score
+  const previousQaBonus = currentMatch?.qaBonusScore || 0;
+  const baseAndAiScore = Math.max(0, (currentMatch?.finalScore || 0) - previousQaBonus);
+  const newFinalScore = Math.min(100, Math.round(baseAndAiScore + score));
 
   // Automatic verification status update for scores >= 85
   const newStatus = newFinalScore >= 85 ? 'VERIFIED' : (currentMatch?.status || 'POTENTIAL');
