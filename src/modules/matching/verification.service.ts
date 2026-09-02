@@ -35,8 +35,7 @@ export async function createVerificationQuestions(matchId: string) {
 const STOP_WORDS = new Set([
   'the', 'is', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for',
   'with', 'it', 'my', 'of', 'by', 'this', 'that', 'there', 'was', 'were',
-  'item', 'lost', 'found', 'something', 'anything', 'some', 'any', 'yes', 'no',
-  'brand', 'color', 'model', 'location', 'campus', 'unique', 'features'
+  'item', 'lost', 'found', 'something', 'anything', 'some', 'any', 'yes', 'no'
 ]);
 
 function extractKeywords(str?: string | null): string[] {
@@ -48,8 +47,7 @@ function extractKeywords(str?: string | null): string[] {
 }
 
 /**
- * Strict answer verification checking user's answer against expected answer & found item context.
- * If expectedAnswer is present, strictly validates against expectedAnswer.
+ * Validates user's verification answer against expected answer, found item attributes, & description.
  */
 function isAnswerCorrect(
   userAnswer: string,
@@ -63,38 +61,59 @@ function isAnswerCorrect(
   const userTokens = extractKeywords(userClean);
   if (userTokens.length === 0) return false;
 
-  // 1. If expectedAnswer is specified, strictly validate against expectedAnswer ONLY
+  const genericPlaceholders = ['brand', 'color', 'model', 'location', 'contents', 'unique features'];
+
+  // 1. Check against specific expectedAnswer if meaningful
   if (expectedAnswer && expectedAnswer.trim().length > 0) {
     const expectedClean = expectedAnswer.trim().toLowerCase();
-    
-    // Direct match or substring match
-    if (expectedClean.includes(userClean) || userClean.includes(expectedClean)) {
+    if (!genericPlaceholders.includes(expectedClean)) {
+      if (expectedClean.includes(userClean) || userClean.includes(expectedClean)) {
+        return true;
+      }
+      const expectedTokens = extractKeywords(expectedClean);
+      if (expectedTokens.length > 0 && userTokens.some((t) => expectedTokens.includes(t))) {
+        return true;
+      }
+    }
+  }
+
+  // 2. Check against Found Report specific fields (brand, model, color, locationText, category)
+  if (foundReport) {
+    const fieldsToMatch = [
+      foundReport.brand,
+      foundReport.model,
+      foundReport.color,
+      foundReport.locationText,
+      foundReport.category,
+    ];
+
+    for (const field of fieldsToMatch) {
+      if (field && field.trim().length > 0) {
+        const fieldClean = field.trim().toLowerCase();
+        if (fieldClean.includes(userClean) || userClean.includes(fieldClean)) {
+          return true;
+        }
+        const fieldTokens = extractKeywords(fieldClean);
+        if (userTokens.some((t) => fieldTokens.includes(t))) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 3. Check against Found Item Description context
+  if (foundDescription && foundDescription.trim().length > 0) {
+    const descClean = foundDescription.trim().toLowerCase();
+    if (descClean.includes(userClean)) {
       return true;
     }
-
-    const expectedTokens = extractKeywords(expectedClean);
-    if (expectedTokens.length > 0) {
-      const hasOverlap = userTokens.some((t) => expectedTokens.includes(t));
-      return hasOverlap;
+    const descTokens = extractKeywords(descClean);
+    if (userTokens.some((t) => descTokens.includes(t))) {
+      return true;
     }
-    return false;
   }
 
-  // 2. If NO expectedAnswer was provided, fallback to checking against description context
-  if (foundDescription && foundDescription.trim().length > 0) {
-    const descTokens = extractKeywords(foundDescription);
-    const hasOverlap = userTokens.some((t) => descTokens.includes(t));
-    if (hasOverlap) return true;
-  }
-
-  // 3. Fallback check against found item metadata
-  if (foundReport) {
-    const metaStr = `${foundReport.brand || ''} ${foundReport.model || ''} ${foundReport.color || ''} ${foundReport.locationText || ''}`;
-    const metaTokens = extractKeywords(metaStr);
-    const hasOverlap = userTokens.some((t) => metaTokens.includes(t));
-    if (hasOverlap) return true;
-  }
-
+  // Incorrect answer — no matching keywords found in found item details
   return false;
 }
 
