@@ -32,43 +32,67 @@ export async function createVerificationQuestions(matchId: string) {
   return questions;
 }
 
+const STOP_WORDS = new Set([
+  'the', 'is', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for',
+  'with', 'it', 'my', 'of', 'by', 'this', 'that', 'there', 'was', 'were',
+  'item', 'lost', 'found', 'something', 'anything', 'some', 'any', 'yes', 'no'
+]);
+
+function extractKeywords(str?: string | null): string[] {
+  if (!str) return [];
+  return str
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+}
+
 /**
- * Smart answer verification checking user's answer against expected answer & item description
+ * Strict answer verification checking user's answer against expected answer & found item context.
+ * Does NOT accept generic 3+ character strings as correct.
  */
 function isAnswerCorrect(
   userAnswer: string,
   expectedAnswer?: string | null,
-  foundDescription?: string
+  foundDescription?: string,
+  foundReport?: { category?: string | null; brand?: string | null; model?: string | null; color?: string | null; locationText?: string | null } | null
 ): boolean {
   if (!userAnswer || userAnswer.trim().length < 2) return false;
 
-  const normalizedUser = userAnswer.trim().toLowerCase();
+  const userClean = userAnswer.trim().toLowerCase();
+  const userTokens = extractKeywords(userClean);
+  if (userTokens.length === 0) return false;
 
-  // If expected answer exists, evaluate keyword / token overlap
+  // 1. Check against expectedAnswer if provided
   if (expectedAnswer && expectedAnswer.trim().length > 0) {
-    const normalizedExpected = expectedAnswer.trim().toLowerCase();
-    if (normalizedExpected.includes(normalizedUser) || normalizedUser.includes(normalizedExpected)) {
+    const expectedClean = expectedAnswer.trim().toLowerCase();
+    
+    // Direct substring or inclusion match
+    if (expectedClean.includes(userClean) || userClean.includes(expectedClean)) {
       return true;
     }
 
-    const userTokens = normalizedUser.split(/\W+/).filter((t) => t.length > 2);
-    const expectedTokens = normalizedExpected.split(/\W+/).filter((t) => t.length > 2);
-    const overlap = userTokens.filter((t) => expectedTokens.includes(t));
-
-    if (overlap.length > 0) return true;
+    const expectedTokens = extractKeywords(expectedClean);
+    const hasOverlap = userTokens.some((t) => expectedTokens.includes(t));
+    if (hasOverlap) return true;
   }
 
-  // Token overlap check against found item description context
+  // 2. Check against found item description context
   if (foundDescription && foundDescription.trim().length > 0) {
-    const descTokens = foundDescription.toLowerCase().split(/\W+/).filter((t) => t.length > 2);
-    const userTokens = normalizedUser.split(/\W+/).filter((t) => t.length > 2);
-    const overlap = userTokens.filter((t) => descTokens.includes(t));
-
-    if (overlap.length > 0) return true;
+    const descTokens = extractKeywords(foundDescription);
+    const hasOverlap = userTokens.some((t) => descTokens.includes(t));
+    if (hasOverlap) return true;
   }
 
-  // Fallback for valid descriptive answer
-  return normalizedUser.length >= 3;
+  // 3. Check against found item metadata (brand, model, color, location)
+  if (foundReport) {
+    const metaStr = `${foundReport.category || ''} ${foundReport.brand || ''} ${foundReport.model || ''} ${foundReport.color || ''} ${foundReport.locationText || ''}`;
+    const metaTokens = extractKeywords(metaStr);
+    const hasOverlap = userTokens.some((t) => metaTokens.includes(t));
+    if (hasOverlap) return true;
+  }
+
+  // No match found — incorrect answer!
+  return false;
 }
 
 export async function submitVerificationAnswers(
@@ -92,7 +116,8 @@ export async function submitVerificationAnswers(
     const isCorrect = isAnswerCorrect(
       ans.answer,
       question.expectedAnswer,
-      matchObj?.foundReport?.description
+      matchObj?.foundReport?.description,
+      matchObj?.foundReport
     );
 
     const awarded = isCorrect ? question.weight : 0;
@@ -109,7 +134,7 @@ export async function submitVerificationAnswers(
   }
 
   const currentMatch = await prisma.match.findUnique({ where: { id: matchId } });
-  const newFinalScore = Math.min(100, Math.round((currentMatch?.finalScore || 0) + score));
+  const newFinalScore = Math.min(100, Math.round((currentMatch?.baseScore || 0) + score));
 
   // Automatic verification status update for scores >= 85
   const newStatus = newFinalScore >= 85 ? 'VERIFIED' : (currentMatch?.status || 'POTENTIAL');
